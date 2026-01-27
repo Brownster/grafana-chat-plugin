@@ -1,0 +1,4 @@
+# Grafana Toolkit Configuration
+pluginId: sabio-sm3-chat-plugin
+backend: true
+skipReactSetupCheck: false

@@ -1,0 +1,8 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" rx="16" fill="#1F2937"/>
+  <circle cx="40" cy="50" r="8" fill="#3B82F6"/>
+  <circle cx="64" cy="50" r="8" fill="#3B82F6"/>
+  <circle cx="88" cy="50" r="8" fill="#3B82F6"/>
+  <path d="M 30 75 Q 64 95, 98 75" stroke="#3B82F6" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <text x="64" y="110" font-family="Arial" font-size="14" fill="#9CA3AF" text-anchor="middle">SM3</text>
+</svg>

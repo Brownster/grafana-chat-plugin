@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "panel",
+  "name": "SM3 Monitoring Agent",
+  "id": "sabio-sm3-chat-plugin",
+  "info": {
+    "description": "AI-powered monitoring assistant with Grafana, AlertManager, and Genesys Cloud integration",
+    "author": {
+      "name": "Sabio",
+      "url": "https://www.sabio.co.uk"
+    },
+    "keywords": ["chat", "ai", "monitoring", "observability", "assistant", "mcp"],
+    "version": "1.0.0",
+    "updated": "2026-01-27",
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "screenshots": [],
+    "links": [
+      {
+        "name": "Documentation",
+        "url": "https://github.com/sabio/grafana-sm3-chat-plugin"
+      }
+    ]
+  },
+  "dependencies": {
+    "grafanaDependency": ">=9.0.0",
+    "plugins": []
+  },
+  "backend": true,
+  "executable": "gpx_sm3_chat",
+  "routes": [
+    {
+      "path": "chat",
+      "method": "POST",
+      "reqRole": "Viewer"
+    },
+    {
+      "path": "chat-stream",
+      "method": "POST",
+      "reqRole": "Viewer"
+    },
+    {
+      "path": "health",
+      "method": "GET",
+      "reqRole": "Viewer"
+    }
+  ]
+}

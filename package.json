@@ -1,0 +1,28 @@
+{
+  "name": "grafana-sm3-chat-plugin",
+  "version": "1.0.0",
+  "description": "AI-powered monitoring assistant with Grafana, AlertManager, and Genesys Cloud integration",
+  "scripts": {
+    "build": "grafana-toolkit plugin:build",
+    "dev": "grafana-toolkit plugin:dev",
+    "test": "grafana-toolkit plugin:test",
+    "watch": "grafana-toolkit plugin:dev --watch"
+  },
+  "author": "Sabio",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@grafana/data": "latest",
+    "@grafana/ui": "latest",
+    "@grafana/runtime": "latest",
+    "recharts": "^2.10.3",
+    "lucide-react": "^0.294.0"
+  },
+  "devDependencies": {
+    "@grafana/toolkit": "latest",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.2.2"
+  }
+}
