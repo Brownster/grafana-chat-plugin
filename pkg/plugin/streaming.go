@@ -12,21 +12,21 @@ import (
 )
 
 // handleChatStream handles streaming chat requests with SSE
-func (p *SM3Plugin) handleChatStream(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, instance *Instance) error {
+func (i *Instance) handleChatStream(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	// Parse request body
 	var chatReq ChatRequest
 	if err := json.Unmarshal(req.Body, &chatReq); err != nil {
-		return p.sendError(sender, 400, fmt.Sprintf("Invalid request body: %v", err))
+		return i.sendError(sender, 400, fmt.Sprintf("Invalid request body: %v", err))
 	}
 
 	// Validate request
 	if chatReq.Message == "" {
-		return p.sendError(sender, 400, "Message is required")
+		return i.sendError(sender, 400, "Message is required")
 	}
 
 	// Generate session ID if not provided
 	if chatReq.SessionID == "" {
-		chatReq.SessionID = fmt.Sprintf("session-%d", req.PluginContext.DataSourceInstanceSettings.ID)
+		chatReq.SessionID = fmt.Sprintf("session-%d", req.PluginContext.OrgID)
 	}
 
 	log.DefaultLogger.Info("Chat stream request", "session", chatReq.SessionID, "message_length", len(chatReq.Message))
@@ -35,10 +35,10 @@ func (p *SM3Plugin) handleChatStream(ctx context.Context, req *backend.CallResou
 	message := buildContextualMessage(chatReq.Message, chatReq.DashboardContext)
 
 	// Start streaming
-	chunks, err := instance.agentManager.RunChatStream(ctx, message, chatReq.SessionID)
+	chunks, err := i.agentManager.RunChatStream(ctx, message, chatReq.SessionID)
 	if err != nil {
 		log.DefaultLogger.Error("Stream failed to start", "error", err)
-		return p.sendError(sender, 500, fmt.Sprintf("Failed to start stream: %v", err))
+		return i.sendError(sender, 500, fmt.Sprintf("Failed to start stream: %v", err))
 	}
 
 	// Set SSE headers
@@ -57,7 +57,7 @@ func (p *SM3Plugin) handleChatStream(ctx context.Context, req *backend.CallResou
 			log.DefaultLogger.Info("Tool call", "tool", chunk.Tool)
 
 			// Execute tool via MCP
-			result, err := p.executeTool(ctx, instance, chunk.Tool, chunk.Arguments)
+			result, err := i.executeTool(ctx, chunk.Tool, chunk.Arguments)
 			if err != nil {
 				log.DefaultLogger.Error("Tool execution failed", "tool", chunk.Tool, "error", err)
 				chunk.Result = fmt.Sprintf("Error: %v", err)
@@ -72,26 +72,26 @@ func (p *SM3Plugin) handleChatStream(ctx context.Context, req *backend.CallResou
 		}
 
 		// Send chunk as SSE
-		if err := p.sendSSE(sender, chunk); err != nil {
+		if err := i.sendSSE(sender, chunk); err != nil {
 			log.DefaultLogger.Error("Failed to send SSE", "error", err)
 			return err
 		}
 	}
 
 	// Add final response to memory
-	instance.agentManager.AddAssistantResponse(chatReq.SessionID, fullResponse)
+	i.agentManager.AddAssistantResponse(chatReq.SessionID, fullResponse)
 
 	return nil
 }
 
 // executeTool executes a tool call via MCP client
-func (p *SM3Plugin) executeTool(ctx context.Context, instance *Instance, toolName string, args map[string]interface{}) (interface{}, error) {
+func (i *Instance) executeTool(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
 	// Determine which MCP client to use based on tool prefix
 	var client *mcp.Client
 	var found bool
 
 	// Check for prefixed tools (e.g., alertmanager__list_alerts)
-	for serverType, mcpClient := range instance.mcpClients {
+	for serverType, mcpClient := range i.mcpClients {
 		if serverType != "grafana" {
 			prefix := serverType + "__"
 			if len(toolName) > len(prefix) && toolName[:len(prefix)] == prefix {
@@ -104,7 +104,7 @@ func (p *SM3Plugin) executeTool(ctx context.Context, instance *Instance, toolNam
 
 	// If no prefix found, use Grafana client (default)
 	if !found {
-		client = instance.mcpClients["grafana"]
+		client = i.mcpClients["grafana"]
 		if client == nil {
 			return nil, fmt.Errorf("Grafana MCP client not available")
 		}
@@ -121,7 +121,7 @@ func (p *SM3Plugin) executeTool(ctx context.Context, instance *Instance, toolNam
 }
 
 // sendSSE sends a chunk as a Server-Sent Event
-func (p *SM3Plugin) sendSSE(sender backend.CallResourceResponseSender, chunk llm.StreamChunk) error {
+func (i *Instance) sendSSE(sender backend.CallResourceResponseSender, chunk llm.StreamChunk) error {
 	data, err := json.Marshal(chunk)
 	if err != nil {
 		return fmt.Errorf("failed to marshal chunk: %w", err)

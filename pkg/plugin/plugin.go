@@ -4,49 +4,113 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/sabio/grafana-sm3-chat-plugin/pkg/agent"
 	"github.com/sabio/grafana-sm3-chat-plugin/pkg/mcp"
 )
 
-// Make sure SM3Plugin implements required interfaces
+// Make sure Plugin implements required interfaces
 var (
-	_ backend.CallResourceHandler   = (*SM3Plugin)(nil)
-	_ instancemgmt.InstanceDisposer = (*Instance)(nil)
+	_ backend.CallResourceHandler = (*Plugin)(nil)
 )
 
-// SM3Plugin is the main plugin struct
-type SM3Plugin struct {
-	backend.CallResourceHandler
-	im instancemgmt.InstanceManager
+// Plugin is the main plugin struct that manages instances
+type Plugin struct {
+	mu        sync.RWMutex
+	instances map[int64]*Instance
 }
 
-// Instance represents a plugin instance
+// Instance represents a plugin instance for a specific data source
 type Instance struct {
 	agentManager *agent.Manager
 	mcpClients   map[string]*mcp.Client
 	settings     *PluginSettings
 }
 
-// NewPlugin creates a new plugin instance
-func NewPlugin() *SM3Plugin {
-	plugin := &SM3Plugin{}
-
-	// Create instance manager
-	plugin.im = instancemgmt.New(plugin.newInstance)
-
-	return plugin
+// NewPlugin creates a new Plugin
+func NewPlugin() *Plugin {
+	return &Plugin{
+		instances: make(map[int64]*Instance),
+	}
 }
 
-// newInstance creates a new plugin instance with MCP connections
-func (p *SM3Plugin) newInstance(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	log.DefaultLogger.Info("Creating new plugin instance")
+// CallResource handles HTTP requests to plugin resources
+func (p *Plugin) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+	log.DefaultLogger.Info("CallResource", "path", req.Path, "method", req.Method)
+
+	// Get or create instance
+	instance, err := p.getInstance(ctx, req.PluginContext)
+	if err != nil {
+		return p.sendError(sender, 500, fmt.Sprintf("Failed to get plugin instance: %v", err))
+	}
+
+	// Route to appropriate handler
+	switch req.Path {
+	case "chat":
+		return instance.handleChat(ctx, req, sender)
+	case "chat-stream":
+		return instance.handleChatStream(ctx, req, sender)
+	case "health":
+		return instance.handleHealth(ctx, req, sender)
+	default:
+		return p.sendError(sender, 404, "Not found")
+	}
+}
+
+// getInstance gets or creates an instance for the given plugin context
+func (p *Plugin) getInstance(ctx context.Context, pluginCtx backend.PluginContext) (*Instance, error) {
+	// Use OrgID as the instance key since this is a panel plugin
+	instanceID := pluginCtx.OrgID
+
+	// Check if instance already exists
+	p.mu.RLock()
+	instance, exists := p.instances[instanceID]
+	p.mu.RUnlock()
+
+	if exists {
+		return instance, nil
+	}
+
+	// Create new instance
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if instance, exists = p.instances[instanceID]; exists {
+		return instance, nil
+	}
+
+	// Create new instance
+	instance, err := p.createInstance(ctx, pluginCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	p.instances[instanceID] = instance
+	return instance, nil
+}
+
+// createInstance creates a new plugin instance
+func (p *Plugin) createInstance(ctx context.Context, pluginCtx backend.PluginContext) (*Instance, error) {
+	log.DefaultLogger.Info("Creating new plugin instance", "org_id", pluginCtx.OrgID)
+
+	// Get settings from AppInstanceSettings if available, otherwise use DataSourceInstanceSettings
+	var jsonData []byte
+	var decryptedSecrets map[string]string
+
+	if pluginCtx.AppInstanceSettings != nil {
+		jsonData = pluginCtx.AppInstanceSettings.JSONData
+		decryptedSecrets = pluginCtx.AppInstanceSettings.DecryptedSecureJSONData
+	} else if pluginCtx.DataSourceInstanceSettings != nil {
+		jsonData = pluginCtx.DataSourceInstanceSettings.JSONData
+		decryptedSecrets = pluginCtx.DataSourceInstanceSettings.DecryptedSecureJSONData
+	}
 
 	// Parse plugin settings
-	pluginSettings, err := LoadSettings(settings.JSONData)
+	pluginSettings, err := LoadSettings(jsonData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load settings: %w", err)
 	}
@@ -58,8 +122,10 @@ func (p *SM3Plugin) newInstance(ctx context.Context, settings backend.DataSource
 
 	// Get decrypted secrets (API keys)
 	apiKey := pluginSettings.OpenAIAPIKey
-	if decrypted := settings.DecryptedSecureJSONData["openai_api_key"]; decrypted != "" {
-		apiKey = decrypted
+	if decryptedSecrets != nil {
+		if decrypted := decryptedSecrets["openai_api_key"]; decrypted != "" {
+			apiKey = decrypted
+		}
 	}
 
 	if apiKey == "" {
@@ -109,58 +175,27 @@ func (p *SM3Plugin) newInstance(ctx context.Context, settings backend.DataSource
 	}, nil
 }
 
-// Dispose cleans up plugin instance resources
-func (i *Instance) Dispose() {
-	log.DefaultLogger.Info("Disposing plugin instance")
-	// Clean up resources if needed
-}
-
-// CallResource handles HTTP requests to plugin resources
-func (p *SM3Plugin) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
-	log.DefaultLogger.Info("CallResource", "path", req.Path, "method", req.Method)
-
-	// Get plugin instance
-	instance, err := p.im.Get(ctx, req.PluginContext)
-	if err != nil {
-		return p.sendError(sender, 500, fmt.Sprintf("Failed to get plugin instance: %v", err))
-	}
-
-	pluginInstance := instance.(*Instance)
-
-	// Route to appropriate handler
-	switch req.Path {
-	case "chat":
-		return p.handleChat(ctx, req, sender, pluginInstance)
-	case "chat-stream":
-		return p.handleChatStream(ctx, req, sender, pluginInstance)
-	case "health":
-		return p.handleHealth(ctx, req, sender, pluginInstance)
-	default:
-		return p.sendError(sender, 404, "Not found")
-	}
-}
-
 // handleHealth returns health status
-func (p *SM3Plugin) handleHealth(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, instance *Instance) error {
+func (i *Instance) handleHealth(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	response := map[string]interface{}{
 		"status": "healthy",
 		"mcp_servers": func() map[string]bool {
 			servers := make(map[string]bool)
-			for serverType := range instance.mcpClients {
+			for serverType := range i.mcpClients {
 				servers[serverType] = true
 			}
 			return servers
 		}(),
 	}
 
-	return p.sendJSON(sender, 200, response)
+	return i.sendJSON(sender, 200, response)
 }
 
 // sendJSON sends a JSON response
-func (p *SM3Plugin) sendJSON(sender backend.CallResourceResponseSender, status int, data interface{}) error {
+func (i *Instance) sendJSON(sender backend.CallResourceResponseSender, status int, data interface{}) error {
 	body, err := json.Marshal(data)
 	if err != nil {
-		return p.sendError(sender, 500, fmt.Sprintf("Failed to marshal JSON: %v", err))
+		return i.sendError(sender, 500, fmt.Sprintf("Failed to marshal JSON: %v", err))
 	}
 
 	return sender.Send(&backend.CallResourceResponse{
@@ -171,6 +206,16 @@ func (p *SM3Plugin) sendJSON(sender backend.CallResourceResponseSender, status i
 }
 
 // sendError sends an error response
-func (p *SM3Plugin) sendError(sender backend.CallResourceResponseSender, status int, message string) error {
-	return p.sendJSON(sender, status, map[string]string{"error": message})
+func (i *Instance) sendError(sender backend.CallResourceResponseSender, status int, message string) error {
+	return i.sendJSON(sender, status, map[string]string{"error": message})
+}
+
+// sendError on Plugin for use before instance is available
+func (p *Plugin) sendError(sender backend.CallResourceResponseSender, status int, message string) error {
+	body, _ := json.Marshal(map[string]string{"error": message})
+	return sender.Send(&backend.CallResourceResponse{
+		Status:  status,
+		Headers: map[string][]string{"Content-Type": {"application/json"}},
+		Body:    body,
+	})
 }

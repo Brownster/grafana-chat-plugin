@@ -11,21 +11,21 @@ import (
 )
 
 // handleChat handles non-streaming chat requests
-func (p *SM3Plugin) handleChat(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender, instance *Instance) error {
+func (i *Instance) handleChat(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	// Parse request body
 	var chatReq ChatRequest
 	if err := json.Unmarshal(req.Body, &chatReq); err != nil {
-		return p.sendError(sender, 400, fmt.Sprintf("Invalid request body: %v", err))
+		return i.sendError(sender, 400, fmt.Sprintf("Invalid request body: %v", err))
 	}
 
 	// Validate request
 	if chatReq.Message == "" {
-		return p.sendError(sender, 400, "Message is required")
+		return i.sendError(sender, 400, "Message is required")
 	}
 
 	// Generate session ID if not provided
 	if chatReq.SessionID == "" {
-		chatReq.SessionID = fmt.Sprintf("session-%d", req.PluginContext.DataSourceInstanceSettings.ID)
+		chatReq.SessionID = fmt.Sprintf("session-%d", req.PluginContext.OrgID)
 	}
 
 	log.DefaultLogger.Info("Chat request", "session", chatReq.SessionID, "message_length", len(chatReq.Message))
@@ -34,14 +34,14 @@ func (p *SM3Plugin) handleChat(ctx context.Context, req *backend.CallResourceReq
 	message := buildContextualMessage(chatReq.Message, chatReq.DashboardContext)
 
 	// Execute chat
-	response, err := instance.agentManager.RunChat(ctx, message, chatReq.SessionID)
+	response, err := i.agentManager.RunChat(ctx, message, chatReq.SessionID)
 	if err != nil {
 		log.DefaultLogger.Error("Chat failed", "error", err)
-		return p.sendError(sender, 500, fmt.Sprintf("Chat failed: %v", err))
+		return i.sendError(sender, 500, fmt.Sprintf("Chat failed: %v", err))
 	}
 
 	// Send response
-	return p.sendJSON(sender, 200, ChatResponse{
+	return i.sendJSON(sender, 200, ChatResponse{
 		Response:  response,
 		SessionID: chatReq.SessionID,
 	})
