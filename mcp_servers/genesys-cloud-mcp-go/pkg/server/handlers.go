@@ -9,12 +9,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/sabio/genesys-cloud-mcp-go/pkg/genesys"
+	"golang.org/x/time/rate"
 )
 
 // MCPServer wraps the Genesys client and MCP server
 type MCPServer struct {
-	client *genesys.Client
-	server *server.MCPServer
+	client  *genesys.Client
+	server  *server.MCPServer
+	limiter *rate.Limiter
 }
 
 // NewMCPServer creates a new MCP server with Genesys client
@@ -25,6 +27,7 @@ func NewMCPServer(client *genesys.Client) *MCPServer {
 			"genesys-cloud-mcp-server",
 			"1.0.0",
 		),
+		limiter: newRateLimiter(),
 	}
 }
 
@@ -162,6 +165,9 @@ func (s *MCPServer) RegisterTools() {
 }
 
 func (s *MCPServer) handleSearchQueues(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	name := getStringParam(arguments, "name", "")
 	pageNumber := getIntParam(arguments, "pageNumber", 1)
 	pageSize := getIntParam(arguments, "pageSize", 25)
@@ -175,6 +181,9 @@ func (s *MCPServer) handleSearchQueues(arguments map[string]interface{}) (*mcp.C
 }
 
 func (s *MCPServer) handleQueryQueueVolumes(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	queueIDs, ok := arguments["queueIds"].([]interface{})
 	if !ok {
 		return mcp.NewToolResultError("queueIds must be an array"), nil
@@ -207,6 +216,9 @@ func (s *MCPServer) handleQueryQueueVolumes(arguments map[string]interface{}) (*
 }
 
 func (s *MCPServer) handleSampleConversations(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	queueID := getStringParam(arguments, "queueId", "")
 	startTimeStr := getStringParam(arguments, "startTime", "")
 	endTimeStr := getStringParam(arguments, "endTime", "")
@@ -234,6 +246,9 @@ func (s *MCPServer) handleSampleConversations(arguments map[string]interface{}) 
 }
 
 func (s *MCPServer) handleSearchVoiceConversations(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	startTimeStr := getStringParam(arguments, "startTime", "")
 	endTimeStr := getStringParam(arguments, "endTime", "")
 	phoneNumber := getStringParam(arguments, "phoneNumber", "")
@@ -259,6 +274,9 @@ func (s *MCPServer) handleSearchVoiceConversations(arguments map[string]interfac
 }
 
 func (s *MCPServer) handleOAuthClients(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	result, err := s.client.ListOAuthClients()
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to list OAuth clients: %v", err)), nil

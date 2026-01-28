@@ -9,16 +9,17 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/sabio/alertmanager-mcp-go/pkg/alertmanager"
+	"golang.org/x/time/rate"
 )
 
 // Pagination defaults and limits (configurable via environment variables)
 var (
-	DefaultSilencePage      = getEnvInt("ALERTMANAGER_DEFAULT_SILENCE_PAGE", 10)
-	MaxSilencePage          = getEnvInt("ALERTMANAGER_MAX_SILENCE_PAGE", 50)
-	DefaultAlertPage        = getEnvInt("ALERTMANAGER_DEFAULT_ALERT_PAGE", 10)
-	MaxAlertPage            = getEnvInt("ALERTMANAGER_MAX_ALERT_PAGE", 25)
-	DefaultAlertGroupPage   = getEnvInt("ALERTMANAGER_DEFAULT_ALERT_GROUP_PAGE", 3)
-	MaxAlertGroupPage       = getEnvInt("ALERTMANAGER_MAX_ALERT_GROUP_PAGE", 5)
+	DefaultSilencePage    = getEnvInt("ALERTMANAGER_DEFAULT_SILENCE_PAGE", 10)
+	MaxSilencePage        = getEnvInt("ALERTMANAGER_MAX_SILENCE_PAGE", 50)
+	DefaultAlertPage      = getEnvInt("ALERTMANAGER_DEFAULT_ALERT_PAGE", 10)
+	MaxAlertPage          = getEnvInt("ALERTMANAGER_MAX_ALERT_PAGE", 25)
+	DefaultAlertGroupPage = getEnvInt("ALERTMANAGER_DEFAULT_ALERT_GROUP_PAGE", 3)
+	MaxAlertGroupPage     = getEnvInt("ALERTMANAGER_MAX_ALERT_GROUP_PAGE", 5)
 )
 
 func getEnvInt(key string, defaultVal int) int {
@@ -30,10 +31,20 @@ func getEnvInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
+func getEnvFloat(key string, defaultVal float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return f
+		}
+	}
+	return defaultVal
+}
+
 // MCPServer wraps the alertmanager client and MCP server
 type MCPServer struct {
-	client *alertmanager.Client
-	server *server.MCPServer
+	client  *alertmanager.Client
+	server  *server.MCPServer
+	limiter *rate.Limiter
 }
 
 // strPtr returns a pointer to a string
@@ -49,6 +60,7 @@ func NewMCPServer(client *alertmanager.Client) *MCPServer {
 			"alertmanager-mcp-server",
 			"1.0.0",
 		),
+		limiter: newRateLimiter(),
 	}
 }
 
@@ -86,6 +98,9 @@ func (s *MCPServer) getStatusTool() mcp.Tool {
 
 // handleGetStatus handles the get_status tool call
 func (s *MCPServer) handleGetStatus(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	status, err := s.client.GetStatus("")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("error: %v", err)), nil
@@ -139,6 +154,9 @@ func (s *MCPServer) getAlertsTool() mcp.Tool {
 
 // handleGetAlerts handles the get_alerts tool call
 func (s *MCPServer) handleGetAlerts(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	// Parse arguments
 	var args struct {
 		Filter    string `json:"filter"`
@@ -223,6 +241,9 @@ func (s *MCPServer) getAlertGroupsTool() mcp.Tool {
 
 // handleGetAlertGroups handles the get_alert_groups tool call
 func (s *MCPServer) handleGetAlertGroups(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	// Parse arguments
 	var args struct {
 		Silenced  *bool `json:"silenced"`
@@ -297,6 +318,9 @@ func (s *MCPServer) getSilencesTool() mcp.Tool {
 
 // handleGetSilences handles the get_silences tool call
 func (s *MCPServer) handleGetSilences(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	// Parse arguments
 	var args struct {
 		Filter string `json:"filter"`
@@ -391,6 +415,9 @@ func (s *MCPServer) postSilenceTool() mcp.Tool {
 
 // handlePostSilence handles the post_silence tool call
 func (s *MCPServer) handlePostSilence(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	// Parse arguments
 	var args struct {
 		Silence alertmanager.Silence `json:"silence"`
@@ -432,6 +459,9 @@ func (s *MCPServer) deleteSilenceTool() mcp.Tool {
 
 // handleDeleteSilence handles the delete_silence tool call
 func (s *MCPServer) handleDeleteSilence(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	// Parse arguments
 	var args struct {
 		SilenceID string `json:"silence_id"`
@@ -495,6 +525,9 @@ func (s *MCPServer) postAlertsTool() mcp.Tool {
 
 // handlePostAlerts handles the post_alerts tool call
 func (s *MCPServer) handlePostAlerts(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	// Parse arguments
 	var args struct {
 		Alerts []alertmanager.Alert `json:"alerts"`
@@ -533,6 +566,9 @@ func (s *MCPServer) getReceiversTool() mcp.Tool {
 
 // handleGetReceivers handles the get_receivers tool call
 func (s *MCPServer) handleGetReceivers(arguments map[string]interface{}) (*mcp.CallToolResult, error) {
+	if result := s.enforceRateLimit(); result != nil {
+		return result, nil
+	}
 	receivers, err := s.client.GetReceivers("")
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("error: %v", err)), nil
