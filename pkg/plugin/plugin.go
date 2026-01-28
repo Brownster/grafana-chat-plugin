@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -177,18 +178,41 @@ func (p *Plugin) createInstance(ctx context.Context, pluginCtx backend.PluginCon
 
 // handleHealth returns health status
 func (i *Instance) handleHealth(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+	const healthTimeout = 3 * time.Second
+
+	overallStatus := "healthy"
 	response := map[string]interface{}{
-		"status": "healthy",
-		"mcp_servers": func() map[string]bool {
-			servers := make(map[string]bool)
-			for serverType := range i.mcpClients {
-				servers[serverType] = true
-			}
-			return servers
-		}(),
+		"status":      "healthy",
+		"mcp_servers": map[string]map[string]interface{}{},
 	}
 
-	return i.sendJSON(sender, 200, response)
+	servers := response["mcp_servers"].(map[string]map[string]interface{})
+	for serverType, client := range i.mcpClients {
+		healthCtx, cancel := context.WithTimeout(ctx, healthTimeout)
+		err := client.Health(healthCtx)
+		cancel()
+
+		if err != nil {
+			overallStatus = "unhealthy"
+			servers[serverType] = map[string]interface{}{
+				"ok":    false,
+				"error": err.Error(),
+			}
+			continue
+		}
+
+		servers[serverType] = map[string]interface{}{
+			"ok": true,
+		}
+	}
+
+	response["status"] = overallStatus
+	statusCode := 200
+	if overallStatus != "healthy" {
+		statusCode = 503
+	}
+
+	return i.sendJSON(sender, statusCode, response)
 }
 
 // sendJSON sends a JSON response

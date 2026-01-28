@@ -88,7 +88,9 @@ export function ChatPanel(props: ChatPanelProps) {
 
   const sendMessage = useCallback(
     async (messageText: string) => {
-      if (!messageText.trim() || isLoading) return;
+      if (!messageText.trim() || isLoading) {
+        return;
+      }
 
       const userMessage: Message = {
         id: Date.now().toString(),
@@ -204,7 +206,9 @@ export function ChatPanel(props: ChatPanelProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading) {
+      return;
+    }
     await sendMessage(input);
   };
 

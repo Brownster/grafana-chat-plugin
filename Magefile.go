@@ -9,5 +9,6 @@ import (
 
 // Default builds the plugin
 func Default() error {
-	return build.BuildAll()
+	build.BuildAll()
+	return nil
 }

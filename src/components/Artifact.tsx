@@ -71,10 +71,10 @@ export interface ArtifactData {
   description?: string;
   data?: unknown;
   chartType?: 'bar' | 'line' | 'pie' | 'area';
-  metrics?: MetricCard[];
-  columns?: TableColumn[];
-  rows?: Record<string, unknown>[];
-  sections?: ReportSection[];
+  metrics?: Array<MetricCard>;
+  columns?: Array<TableColumn>;
+  rows?: Array<Record<string, unknown>>;
+  sections?: Array<ReportSection>;
 }
 
 interface MetricCard {
@@ -98,9 +98,9 @@ interface ReportSection {
   content?: string;
   data?: unknown;
   chartType?: 'bar' | 'line' | 'pie' | 'area';
-  metrics?: MetricCard[];
-  columns?: TableColumn[];
-  rows?: Record<string, unknown>[];
+  metrics?: Array<MetricCard>;
+  columns?: Array<TableColumn>;
+  rows?: Array<Record<string, unknown>>;
 }
 
 interface ArtifactProps {
@@ -130,8 +130,8 @@ export function parseArtifact(content: string): { artifact: ArtifactData | null;
 }
 
 // Parse multiple artifacts from content
-export function parseArtifacts(content: string): { artifacts: ArtifactData[]; remainingContent: string } {
-  const artifacts: ArtifactData[] = [];
+export function parseArtifacts(content: string): { artifacts: Array<ArtifactData>; remainingContent: string } {
+  const artifacts: Array<ArtifactData> = [];
   let remaining = content;
   const artifactRegex = /```artifact\s*([\s\S]*?)```/g;
   let match;
@@ -325,7 +325,7 @@ function ChartComponent({
 }
 
 // Table Component
-function TableComponent({ columns, rows }: { columns: TableColumn[]; rows: Record<string, unknown>[] }) {
+function TableComponent({ columns, rows }: { columns: Array<TableColumn>; rows: Array<Record<string, unknown>> }) {
   if (!columns || columns.length === 0 || !rows || rows.length === 0) {
     return <div className="text-gray-500 text-center py-4">No table data available</div>;
   }

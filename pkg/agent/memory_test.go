@@ -42,6 +42,61 @@ func TestAddMessage(t *testing.T) {
 	}
 }
 
+func TestMessageLimitTrimming(t *testing.T) {
+	memory := NewConversationMemoryWithConfig(MemoryConfig{
+		MaxMessages:   3,
+		MaxCharacters: -1,
+	})
+
+	memory.AddMessage("user", "one")
+	memory.AddMessage("assistant", "two")
+	memory.AddMessage("user", "three")
+	memory.AddMessage("assistant", "four")
+	memory.AddMessage("user", "five")
+
+	messages := memory.GetMessages()
+	if len(messages) != 3 {
+		t.Fatalf("Expected 3 messages after trimming, got %d", len(messages))
+	}
+
+	if messages[0].Content != "three" || messages[1].Content != "four" || messages[2].Content != "five" {
+		t.Errorf("Unexpected messages after trimming: %#v", messages)
+	}
+}
+
+func TestCharacterLimitTrimming(t *testing.T) {
+	memory := NewConversationMemoryWithConfig(MemoryConfig{
+		MaxMessages:   -1,
+		MaxCharacters: 10,
+	})
+
+	memory.AddMessage("user", "12345")      // total 5
+	memory.AddMessage("assistant", "6789")  // total 9
+	memory.AddMessage("user", "abcd")       // total 13 -> should trim oldest
+
+	messages := memory.GetMessages()
+	if len(messages) != 2 {
+		t.Fatalf("Expected 2 messages after trimming, got %d", len(messages))
+	}
+
+	if messages[0].Content != "6789" || messages[1].Content != "abcd" {
+		t.Errorf("Unexpected messages after trimming: %#v", messages)
+	}
+}
+
+func TestZeroConfigUsesDefaults(t *testing.T) {
+	memory := NewConversationMemoryWithConfig(MemoryConfig{})
+
+	for i := 0; i < DefaultMaxMessages+1; i++ {
+		memory.AddMessage("user", "x")
+	}
+
+	messages := memory.GetMessages()
+	if len(messages) != DefaultMaxMessages {
+		t.Errorf("Expected DefaultMaxMessages=%d messages, got %d", DefaultMaxMessages, len(messages))
+	}
+}
+
 func TestGetMessages(t *testing.T) {
 	memory := NewConversationMemory()
 

@@ -42,6 +42,11 @@ func NewClient(url string, serverType string) *Client {
 
 // Connect initializes the MCP session
 func (c *Client) Connect(ctx context.Context) error {
+	return c.Health(ctx)
+}
+
+// Health checks MCP server connectivity
+func (c *Client) Health(ctx context.Context) error {
 	resp, err := c.httpClient.R().
 		SetContext(ctx).
 		SetHeader("Content-Type", "application/json").

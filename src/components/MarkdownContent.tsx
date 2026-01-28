@@ -19,8 +19,8 @@ export function MarkdownContent({ content, className = '' }: MarkdownContentProp
   };
 
   // Parse markdown and convert to React elements
-  const parseMarkdown = (text: string): React.ReactNode[] => {
-    const elements: React.ReactNode[] = [];
+  const parseMarkdown = (text: string): Array<React.ReactNode> => {
+    const elements: Array<React.ReactNode> = [];
     let key = 0;
 
     const normalized = normalizeContent(text);
@@ -74,11 +74,14 @@ export function MarkdownContent({ content, className = '' }: MarkdownContentProp
           h6: 'font-bold mt-1 mb-1',
         };
         elements.push(
-          React.createElement(HeadingTag, {
-            key: `heading-${key++}`,
-            className: headingClasses[`h${level}` as keyof typeof headingClasses],
-            children: parseInlineMarkdown(headingText),
-          })
+          React.createElement(
+            HeadingTag,
+            {
+              key: `heading-${key++}`,
+              className: headingClasses[`h${level}` as keyof typeof headingClasses],
+            },
+            parseInlineMarkdown(headingText)
+          )
         );
         i++;
         continue;
@@ -86,7 +89,7 @@ export function MarkdownContent({ content, className = '' }: MarkdownContentProp
       
       // Check for numbered list (collect all items including sub-items)
       if (line.trim().match(/^\d+\.\s/)) {
-        const listItems: { main: string; subItems: string[] }[] = [];
+        const listItems: Array<{ main: string; subItems: Array<string> }> = [];
         
         while (i < lines.length) {
           const currentLine = lines[i];
@@ -187,8 +190,8 @@ export function MarkdownContent({ content, className = '' }: MarkdownContentProp
   };
 
   // Parse inline markdown (bold, italic, code, links)
-  const parseInlineMarkdown = (text: string): React.ReactNode[] => {
-    const elements: React.ReactNode[] = [];
+  const parseInlineMarkdown = (text: string): Array<React.ReactNode> => {
+    const elements: Array<React.ReactNode> = [];
     let lastIndex = 0;
     let key = 0;
 
