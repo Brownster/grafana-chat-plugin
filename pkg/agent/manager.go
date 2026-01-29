@@ -12,7 +12,7 @@ import (
 
 // Manager handles agent orchestration and LLM interaction
 type Manager struct {
-	openaiClient    *llm.OpenAIClient
+	llmClient       *llm.LLMClient
 	tools           []openai.Tool
 	sessionMemories map[string]*ConversationMemory
 	systemPrompt    string
@@ -20,21 +20,15 @@ type Manager struct {
 }
 
 // NewManager creates a new agent manager
-func NewManager(apiKey string, mcpClients map[string]*mcp.Client, mcpTypes []string) (*Manager, error) {
+func NewManager(llmClient *llm.LLMClient, mcpClients map[string]*mcp.Client, mcpTypes []string) (*Manager, error) {
 	// Build system prompt based on available MCP types
 	systemPrompt := BuildSystemPrompt(mcpTypes)
-
-	// Create OpenAI client
-	openaiClient, err := llm.NewOpenAIClient(apiKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OpenAI client: %w", err)
-	}
 
 	// Convert MCP tools to OpenAI format
 	tools := convertMCPToolsToOpenAI(mcpClients)
 
 	return &Manager{
-		openaiClient:    openaiClient,
+		llmClient:       llmClient,
 		tools:           tools,
 		sessionMemories: make(map[string]*ConversationMemory),
 		systemPrompt:    systemPrompt,
@@ -51,8 +45,8 @@ func (m *Manager) RunChat(ctx context.Context, userMessage, sessionID string) (s
 	// Build messages for API call
 	messages := m.buildMessages(memory)
 
-	// Call OpenAI
-	response, err := m.openaiClient.Chat(ctx, messages, m.tools)
+	// Call LLM via Grafana LLM App
+	response, err := m.llmClient.Chat(ctx, messages, m.tools)
 	if err != nil {
 		return "", fmt.Errorf("OpenAI chat failed: %w", err)
 	}
@@ -74,7 +68,7 @@ func (m *Manager) RunChatStream(ctx context.Context, userMessage, sessionID stri
 	messages := m.buildMessages(memory)
 
 	// Start streaming
-	return m.openaiClient.StreamChat(ctx, messages, m.tools)
+	return m.llmClient.StreamChat(ctx, messages, m.tools)
 }
 
 // getOrCreateMemory retrieves or creates a conversation memory for a session

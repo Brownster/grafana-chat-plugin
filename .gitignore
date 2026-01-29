@@ -49,3 +49,6 @@ temp/
 *.zip
 releases/
 dev-agents/
+
+# Reference apps (not part of this build)
+grafana-llm-app/

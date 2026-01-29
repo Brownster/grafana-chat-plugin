@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/grafana/grafana-llm-app/llmclient"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -19,56 +20,68 @@ type StreamChunk struct {
 	Result    interface{}            `json:"result,omitempty"`
 }
 
-// OpenAIClient wraps the OpenAI API client
-type OpenAIClient struct {
-	client *openai.Client
+// LLMClient wraps the Grafana LLM App client
+type LLMClient struct {
+	provider llmclient.LLMProvider
 }
 
-// NewOpenAIClient creates a new OpenAI client
-func NewOpenAIClient(apiKey string) (*OpenAIClient, error) {
-	if apiKey == "" {
-		return nil, errors.New("OpenAI API key is required")
+// NewLLMClient creates a new LLM client that routes through Grafana LLM App
+func NewLLMClient(grafanaURL, grafanaAPIKey string) (*LLMClient, error) {
+	if grafanaURL == "" {
+		return nil, errors.New("Grafana URL is required")
+	}
+	if grafanaAPIKey == "" {
+		return nil, errors.New("Grafana API key is required")
 	}
 
-	client := openai.NewClient(apiKey)
+	provider := llmclient.NewLLMProvider(grafanaURL, grafanaAPIKey)
 
-	return &OpenAIClient{
-		client: client,
+	return &LLMClient{
+		provider: provider,
 	}, nil
 }
 
-// Chat performs a non-streaming chat completion
-func (c *OpenAIClient) Chat(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool) (string, error) {
-	req := openai.ChatCompletionRequest{
-		Model:    openai.GPT4,
-		Messages: messages,
-		Tools:    tools,
+// Enabled checks if the Grafana LLM App is configured and available
+func (c *LLMClient) Enabled(ctx context.Context) (bool, error) {
+	return c.provider.Enabled(ctx)
+}
+
+// Chat performs a non-streaming chat completion via Grafana LLM App
+func (c *LLMClient) Chat(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool) (string, error) {
+	req := llmclient.ChatCompletionRequest{
+		ChatCompletionRequest: openai.ChatCompletionRequest{
+			Messages: messages,
+			Tools:    tools,
+		},
+		Model: llmclient.ModelLarge,
 	}
 
-	resp, err := c.client.CreateChatCompletion(ctx, req)
+	resp, err := c.provider.ChatCompletions(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("OpenAI API error: %w", err)
+		return "", fmt.Errorf("LLM API error: %w", err)
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", errors.New("no response from OpenAI")
+		return "", errors.New("no response from LLM")
 	}
 
 	return resp.Choices[0].Message.Content, nil
 }
 
-// StreamChat performs a streaming chat completion
-func (c *OpenAIClient) StreamChat(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool) (<-chan StreamChunk, error) {
+// StreamChat performs a streaming chat completion via Grafana LLM App
+func (c *LLMClient) StreamChat(ctx context.Context, messages []openai.ChatCompletionMessage, tools []openai.Tool) (<-chan StreamChunk, error) {
 	chunks := make(chan StreamChunk, 100)
 
-	req := openai.ChatCompletionRequest{
-		Model:    openai.GPT4,
-		Messages: messages,
-		Tools:    tools,
-		Stream:   true,
+	req := llmclient.ChatCompletionRequest{
+		ChatCompletionRequest: openai.ChatCompletionRequest{
+			Messages: messages,
+			Tools:    tools,
+			Stream:   true,
+		},
+		Model: llmclient.ModelLarge,
 	}
 
-	stream, err := c.client.CreateChatCompletionStream(ctx, req)
+	stream, err := c.provider.ChatCompletionsStream(ctx, req)
 	if err != nil {
 		close(chunks)
 		return nil, fmt.Errorf("failed to create stream: %w", err)
@@ -158,7 +171,6 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, messages []openai.ChatCom
 				}
 
 				// Send tool call event
-				// Note: Actual tool execution happens in the plugin layer where MCP clients are available
 				chunks <- StreamChunk{
 					Type:      "tool",
 					Tool:      tc.Function.Name,
@@ -178,11 +190,4 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, messages []openai.ChatCom
 	}()
 
 	return chunks, nil
-}
-
-// ExecuteToolCall executes a tool call (placeholder - actual execution done by MCP clients)
-func ExecuteToolCall(ctx context.Context, name string, args map[string]interface{}) (interface{}, error) {
-	// This is a placeholder. Actual tool execution happens in the plugin layer
-	// where MCP clients are available
-	return nil, errors.New("tool execution not implemented in LLM layer")
 }

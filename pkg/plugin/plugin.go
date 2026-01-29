@@ -10,6 +10,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/sabio/grafana-sm3-chat-plugin/pkg/agent"
+	"github.com/sabio/grafana-sm3-chat-plugin/pkg/llm"
 	"github.com/sabio/grafana-sm3-chat-plugin/pkg/mcp"
 )
 
@@ -27,6 +28,7 @@ type Plugin struct {
 // Instance represents a plugin instance for a specific data source
 type Instance struct {
 	agentManager *agent.Manager
+	llmClient    *llm.LLMClient
 	mcpClients   map[string]*mcp.Client
 	settings     *PluginSettings
 }
@@ -121,16 +123,22 @@ func (p *Plugin) createInstance(ctx context.Context, pluginCtx backend.PluginCon
 		return nil, fmt.Errorf("invalid settings: %w", err)
 	}
 
-	// Get decrypted secrets (API keys)
-	apiKey := pluginSettings.OpenAIAPIKey
+	// Get decrypted secrets (Grafana API key)
+	grafanaAPIKey := pluginSettings.GrafanaAPIKey
 	if decryptedSecrets != nil {
-		if decrypted := decryptedSecrets["openai_api_key"]; decrypted != "" {
-			apiKey = decrypted
+		if decrypted := decryptedSecrets["grafana_api_key"]; decrypted != "" {
+			grafanaAPIKey = decrypted
 		}
 	}
 
-	if apiKey == "" {
-		return nil, fmt.Errorf("OpenAI API key not found in settings or secrets")
+	if grafanaAPIKey == "" {
+		return nil, fmt.Errorf("Grafana API key not found in settings or secrets")
+	}
+
+	// Create LLM client via Grafana LLM App
+	llmClient, err := llm.NewLLMClient(pluginSettings.GrafanaURL, grafanaAPIKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create LLM client: %w", err)
 	}
 
 	// Connect to MCP servers
@@ -164,13 +172,14 @@ func (p *Plugin) createInstance(ctx context.Context, pluginCtx backend.PluginCon
 
 	// Initialize agent manager
 	log.DefaultLogger.Info("Initializing agent manager", "mcp_types", mcpTypes)
-	agentManager, err := agent.NewManager(apiKey, mcpClients, mcpTypes)
+	agentManager, err := agent.NewManager(llmClient, mcpClients, mcpTypes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent manager: %w", err)
 	}
 
 	return &Instance{
 		agentManager: agentManager,
+		llmClient:    llmClient,
 		mcpClients:   mcpClients,
 		settings:     pluginSettings,
 	}, nil
@@ -186,6 +195,28 @@ func (i *Instance) handleHealth(ctx context.Context, req *backend.CallResourceRe
 		"mcp_servers": map[string]map[string]interface{}{},
 	}
 
+	// Check LLM provider via Grafana LLM App
+	llmHealthCtx, llmCancel := context.WithTimeout(ctx, healthTimeout)
+	llmEnabled, llmErr := i.llmClient.Enabled(llmHealthCtx)
+	llmCancel()
+
+	if llmErr != nil || !llmEnabled {
+		overallStatus = "unhealthy"
+		errMsg := "LLM provider not enabled"
+		if llmErr != nil {
+			errMsg = llmErr.Error()
+		}
+		response["llm_provider"] = map[string]interface{}{
+			"ok":    false,
+			"error": errMsg,
+		}
+	} else {
+		response["llm_provider"] = map[string]interface{}{
+			"ok": true,
+		}
+	}
+
+	// Check MCP servers
 	servers := response["mcp_servers"].(map[string]map[string]interface{})
 	for serverType, client := range i.mcpClients {
 		healthCtx, cancel := context.WithTimeout(ctx, healthTimeout)

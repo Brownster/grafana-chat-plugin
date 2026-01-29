@@ -7,7 +7,8 @@ import (
 
 // PluginSettings holds the plugin configuration
 type PluginSettings struct {
-	OpenAIAPIKey       string `json:"openai_api_key"`
+	GrafanaURL         string `json:"grafana_url"`
+	GrafanaAPIKey      string `json:"grafana_api_key"`
 	GrafanaMCPURL      string `json:"grafana_mcp_url"`
 	AlertManagerMCPURL string `json:"alertmanager_mcp_url"`
 	GenesysMCPURL      string `json:"genesys_mcp_url"`
@@ -30,8 +31,12 @@ func LoadSettings(jsonData []byte) (*PluginSettings, error) {
 
 // Validate checks if required settings are present
 func (s *PluginSettings) Validate() error {
-	if s.OpenAIAPIKey == "" {
-		return fmt.Errorf("OpenAI API key is required")
+	if s.GrafanaURL == "" {
+		return fmt.Errorf("Grafana URL is required (for Grafana LLM App integration)")
+	}
+
+	if s.GrafanaAPIKey == "" {
+		return fmt.Errorf("Grafana API key is required (service account token for Grafana LLM App)")
 	}
 
 	if s.GrafanaMCPURL == "" && s.AlertManagerMCPURL == "" && s.GenesysMCPURL == "" {

@@ -16,7 +16,7 @@ AI-powered monitoring assistant for Grafana with MCP integration for Grafana, Al
 ### Backend (Go)
 - Plugin SDK integration with Grafana
 - MCP client for connecting to external MCP servers
-- OpenAI integration with GPT-4 for intelligent responses
+- LLM integration via [Grafana LLM App](https://github.com/grafana/grafana-llm-app) (supports OpenAI, Azure, Anthropic, Grafana-managed)
 - Session-based conversation memory
 - SSE streaming for real-time responses
 
@@ -33,9 +33,10 @@ AI-powered monitoring assistant for Grafana with MCP integration for Grafana, Al
 
 - Grafana 9.0.0 or later
 - Go 1.21 or later
-- Node.js 18 or later
-- npm 9 or later
-- OpenAI API key with GPT-4 access
+- Node.js 22 or later
+- npm 11 or later
+- [Grafana LLM App](https://github.com/grafana/grafana-llm-app) installed and configured with an LLM provider
+- Grafana service account token (for plugin-to-LLM-App communication)
 - Running MCP servers (Grafana, AlertManager, Genesys)
 
 ### Build from Source
@@ -76,9 +77,13 @@ Configure the plugin in Grafana:
 
 2. Configure the following settings:
 
-**OpenAI API Key** (Required)
+**Grafana URL** (Required)
+- URL of the Grafana instance (e.g. `http://localhost:3000`)
+
+**Grafana API Key** (Required)
+- Service account token for authenticating with the Grafana LLM App
 - Store securely as a secret variable
-- Must have GPT-4 access
+- The LLM provider (OpenAI, Azure, Anthropic, etc.) is configured in the Grafana LLM App itself
 
 **MCP Server URLs** (At least one required)
 - **Grafana MCP**: `http://grafana-mcp:8888`
@@ -88,7 +93,8 @@ Configure the plugin in Grafana:
 Example configuration JSON:
 ```json
 {
-  "openai_api_key": "${OPENAI_API_KEY}",
+  "grafana_url": "http://localhost:3000",
+  "grafana_api_key": "${GRAFANA_API_KEY}",
   "grafana_mcp_url": "http://grafana-mcp:8888",
   "alertmanager_mcp_url": "http://alertmanager-mcp:9300",
   "genesys_mcp_url": "http://genesys-mcp:9400"
@@ -167,6 +173,82 @@ The agent can render rich visualizations as artifacts:
 - `table` - Data tables with sortable columns
 - `metric-cards` - Grid of metric cards with trends
 
+## MCP Servers
+
+The plugin connects to external MCP servers for tool execution. Two custom servers are included in the `mcp_servers/` directory.
+
+### AlertManager MCP Server
+
+Provides tools for querying and managing Prometheus AlertManager: alerts, silences, receivers, and alert groups with smart pagination.
+
+```bash
+cd mcp_servers/alertmanager-mcp-go
+
+# Configure
+cp .env.sample .env
+# Edit .env:
+#   ALERTMANAGER_URL=http://your-alertmanager:9093
+#   MCP_TRANSPORT=sse
+#   MCP_PORT=9300
+
+# Build and run
+make build
+make run-sse
+```
+
+**Available tools:** `get_status`, `get_alerts`, `get_alert_groups`, `get_silences`, `post_silence`, `delete_silence`, `post_alerts`, `get_receivers`
+
+**Required permissions:** Access to AlertManager API v2.
+
+See [mcp_servers/alertmanager-mcp-go/README.md](mcp_servers/alertmanager-mcp-go/README.md) for full documentation.
+
+### Genesys Cloud MCP Server
+
+Provides tools for querying Genesys Cloud Platform: queue management, conversation analytics, and OAuth client management.
+
+```bash
+cd mcp_servers/genesys-cloud-mcp-go
+
+# Configure
+cp .env.sample .env
+# Edit .env:
+#   GENESYSCLOUD_REGION=mypurecloud.com
+#   GENESYSCLOUD_OAUTHCLIENT_ID=your-client-id
+#   GENESYSCLOUD_OAUTHCLIENT_SECRET=your-secret
+#   MCP_TRANSPORT=sse
+#   MCP_PORT=9400
+
+# Build and run
+make build
+make run-sse
+```
+
+**Available tools:** `search_queues`, `query_queue_volumes`, `sample_conversations_by_queue`, `search_voice_conversations`, `oauth_clients`
+
+**Required Genesys Cloud permissions:**
+- `routing:queue:view`
+- `analytics:conversationDetail:view`
+- `analytics:conversationAggregate:view`
+- `oauth:client:view`
+
+See [mcp_servers/genesys-cloud-mcp-go/README.md](mcp_servers/genesys-cloud-mcp-go/README.md) for full documentation including Docker deployment and multi-region support.
+
+### Connecting MCP Servers to the Plugin
+
+Once the MCP servers are running in SSE mode, configure their URLs in the plugin settings:
+
+```json
+{
+  "grafana_mcp_url": "http://localhost:8888",
+  "alertmanager_mcp_url": "http://localhost:9300",
+  "genesys_mcp_url": "http://localhost:9400"
+}
+```
+
+The plugin will connect to each server on startup, discover available tools, and make them available to the LLM for tool calling.
+
+---
+
 ## Development
 
 ### Project Structure
@@ -175,14 +257,17 @@ The agent can render rich visualizations as artifacts:
 grafana-sm3-chat-plugin/
 ├── pkg/
 │   ├── agent/         # Agent manager, memory, prompts
-│   ├── llm/           # OpenAI client and streaming
+│   ├── llm/           # LLM client (via Grafana LLM App)
 │   ├── mcp/           # MCP client and tool execution
 │   └── plugin/        # Grafana plugin core, HTTP handlers
 ├── src/
 │   ├── components/    # React components (ChatPanel, Artifact, Markdown)
 │   ├── services/      # API client
 │   └── types.ts       # TypeScript type definitions
-├── plugin.json        # Plugin metadata
+├── mcp_servers/
+│   ├── alertmanager-mcp-go/   # AlertManager MCP server
+│   └── genesys-cloud-mcp-go/  # Genesys Cloud MCP server
+├── src/plugin.json    # Plugin metadata
 ├── Magefile.go        # Go build configuration
 ├── package.json       # Frontend dependencies
 └── README.md          # This file
@@ -262,8 +347,9 @@ curl http://genesys-mcp:9400/health
 ### Streaming not working
 
 1. Verify SSE headers in browser DevTools Network tab
-2. Check OpenAI API key is valid
-3. Ensure no proxy blocking SSE connections
+2. Check Grafana LLM App is enabled and configured (`GET /api/plugins/grafana-llm-app/health`)
+3. Verify service account token is valid
+4. Ensure no proxy blocking SSE connections
 
 ## API Reference
 
@@ -281,7 +367,7 @@ curl http://genesys-mcp:9400/health
 
 **GET /api/plugins/sabio-sm3-chat-plugin/resources/health**
 - Health check endpoint
-- Response: `{ status: string, mcp_servers: Record<string, boolean> }`
+- Response: `{ status: string, llm_provider: { ok: boolean }, mcp_servers: Record<string, { ok: boolean }> }`
 
 ### TypeScript Types
 
